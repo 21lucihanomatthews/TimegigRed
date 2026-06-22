@@ -1,0 +1,6 @@
+{
+  "name": "TimeGiG",
+  "description": "A freelance marketplace application with gig browsing, advanced province-based search, chat, and wallet features.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
