@@ -19,6 +19,8 @@ import { DataProvider, useData } from './DataContext';
 import { UserProvider, useUser } from './UserContext';
 import GuidanceTour from './components/GuidanceTour';
 import ErrorBanner from './components/ErrorBanner';
+import AuthScreen from './components/AuthScreen';
+import WelcomeSuccess from './components/WelcomeSuccess';
 
 const TOUR_STEPS: { targetId?: string; title: string; content: string; tab?: string; position?: 'top' | 'bottom' | 'left' | 'right' | 'center' }[] = [
   {
@@ -84,7 +86,7 @@ const TOUR_STEPS: { targetId?: string; title: string; content: string; tab?: str
 
 function AppMain() {
   const { error: dataError } = useData();
-  const { error: userError } = useUser() || { error: null };
+  const { error: userError, isAuthenticated, isRegistered } = useUser() || { error: null, isAuthenticated: false, isRegistered: false };
   const databaseError = dataError || userError;
 
   const [activeTab, setActiveTab] = useState('GiGs');
@@ -126,6 +128,9 @@ function AppMain() {
   };
 
   const renderContent = () => {
+    if (!isAuthenticated) return <AuthScreen />;
+    if (!isRegistered) return <WelcomeSuccess />;
+
     switch (activeTab) {
       case 'GiGs':
         return <GigsPage onNavigate={switchTab} onChatRequest={handleChatRequest} onToggleForm={setIsCreatingGig} onToggleView={setIsViewingGig} />;
@@ -192,6 +197,11 @@ function AppMain() {
         )}
       </AnimatePresence>
 
+      {(!isAuthenticated || !isRegistered) ? (
+          <div className="h-screen overflow-y-auto">
+            {renderContent()}
+          </div>
+      ) : (
       <div 
         className={`h-screen flex flex-col relative overflow-hidden ${activeTab !== 'Chat' ? 'pb-24' : ''}`}
         style={{
@@ -243,6 +253,7 @@ function AppMain() {
           />
         )}
       </div>
+      )}
     </>
   );
 }

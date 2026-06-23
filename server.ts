@@ -23,10 +23,13 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Helper for Supabase errors
 const handleSupabaseError = (res: any, error: any, context: string) => {
-  console.error(`Supabase error in ${context}:`, JSON.stringify(error, null, 2));
-  const message = error.message || "Unknown database error";
-  const details = error.details || "";
-  const hint = error.hint || "";
+  console.error(`Supabase error in ${context}:`, error);
+  // Log full error details for debugging
+  console.error("Full Error Object:", JSON.stringify(error, null, 2));
+  
+  const message = (typeof error === 'string' ? error : (error?.message || JSON.stringify(error) || "Unknown database error"));
+  const details = error?.details || "";
+  const hint = error?.hint || "";
   
   return res.status(500).json({ 
     error: `${context}: ${message}`,
@@ -34,11 +37,6 @@ const handleSupabaseError = (res: any, error: any, context: string) => {
     hint: hint || "Ensure you've ran the latest SUPABASE_FIX.sql in your Supabase dashboard."
   });
 };
-
-// API ROUTES
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
-});
 
 // Gigs
 app.get("/api/gigs", async (req, res) => {
@@ -182,12 +180,114 @@ app.get("/api/profiles", async (req, res) => {
 
 app.put("/api/profiles/:id", async (req, res) => {
   try {
-    const { id, ...updateData } = req.body;
-    const { data, error } = await supabase.from("profiles").update(updateData).eq("id", req.params.id).select();
+    const { id, ...dbUpdateData } = req.body;
+    
+    const { data, error } = await supabase.from("profiles").update(dbUpdateData).eq("id", req.params.id).select();
     if (error) return handleSupabaseError(res, error, "updateProfile");
-    res.json(data ? data[0] : null);
+    res.json(data && data.length > 0 ? data[0] : { error: "Profile not found", profileNotFound: true });
   } catch (err: any) {
     res.status(500).json({ error: `Failed to update profile: ${err.message}` });
+  }
+});
+
+app.post("/api/profiles", async (req, res) => {
+  try {
+    const { data, error } = await supabase.from("profiles").insert([req.body]).select();
+    if (error) return handleSupabaseError(res, error, "createProfile");
+    res.json(data ? data[0] : null);
+  } catch (err: any) {
+    res.status(500).json({ error: `Failed to create profile: ${err.message}` });
+  }
+});
+
+app.get("/api/check-email", async (req, res) => {
+  try {
+    const { email } = req.query;
+    const { data, error } = await supabase.from("profiles").select("id").eq("contact", email);
+    if (error) return handleSupabaseError(res, error, "checkEmail");
+    res.json({ exists: data && data.length > 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/check-docs", async (req, res) => {
+  try {
+    const { email } = req.query;
+    const { data, error } = await supabase.from("profiles").select("id").eq("contact", email).eq("idUploaded", true);
+    if (error) return handleSupabaseError(res, error, "checkDocs");
+    res.json({ isRegistered: data && data.length > 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // First, check if columns exist by trying to select them
+    // This helps produce better error messages for missing schema
+    const { data, error } = await supabase.from("profiles").select("*").eq("contact", email).eq("password", password);
+    
+    if (error) {
+      if (error.code === "42703") { // Undefined column
+        return res.status(400).json({ 
+          error: "Database schema mismatch: 'password' column missing.",
+          hint: "Please run the SQL commands in SUPABASE_FIX.sql in your Supabase SQL Editor."
+        });
+      }
+      return handleSupabaseError(res, error, "login");
+    }
+    
+    if (data && data.length > 0) {
+      // If there are duplicates, the user said "remove immediately"
+      if (data.length > 1) {
+        console.warn(`Duplicate accounts found for ${email}. Keeping only the first one.`);
+        const [keep, ...others] = data;
+        for (const other of others) {
+          await supabase.from("profiles").delete().eq("id", other.id);
+        }
+        return res.json(keep);
+      }
+      res.json(data[0]);
+    } else {
+      res.status(401).json({ error: "Invalid email or password" });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/recovery", async (req, res) => {
+  try {
+    const { email, pin } = req.body;
+    const { data, error } = await supabase.from("profiles").select("*").eq("contact", email).eq("pin", pin);
+    
+    if (error) {
+      if (error.code === "42703") {
+        return res.status(400).json({ 
+          error: "Database schema mismatch: 'pin' column missing.",
+          hint: "Please run the SQL commands in SUPABASE_FIX.sql in your Supabase SQL Editor."
+        });
+      }
+      return handleSupabaseError(res, error, "recovery");
+    }
+    
+    if (data && data.length > 0) {
+      if (data.length > 1) {
+        const [keep, ...others] = data;
+        for (const other of others) {
+          await supabase.from("profiles").delete().eq("id", other.id);
+        }
+        return res.json(keep);
+      }
+      res.json(data[0]);
+    } else {
+      res.status(401).json({ error: "Invalid email or recovery PIN" });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -205,7 +305,12 @@ app.get("/api/notifications", async (req, res) => {
 
 app.post("/api/notifications", async (req, res) => {
   try {
-    const { data, error } = await supabase.from("notifications").insert([req.body]).select();
+    const dataToSend = { ...req.body };
+    if ('isRead' in dataToSend) {
+        dataToSend.read = dataToSend.isRead;
+        delete dataToSend.isRead;
+    }
+    const { data, error } = await supabase.from("notifications").insert([dataToSend]).select();
     if (error) return handleSupabaseError(res, error, "postNotification");
     res.json(data ? data[0] : null);
   } catch (err: any) {
@@ -215,7 +320,12 @@ app.post("/api/notifications", async (req, res) => {
 
 app.put("/api/notifications/:id", async (req, res) => {
   try {
-    const { data, error } = await supabase.from("notifications").update(req.body).eq("id", req.params.id).select();
+    const dataToSend = { ...req.body };
+    if ('isRead' in dataToSend) {
+        dataToSend.read = dataToSend.isRead;
+        delete dataToSend.isRead;
+    }
+    const { data, error } = await supabase.from("notifications").update(dataToSend).eq("id", req.params.id).select();
     if (error) return handleSupabaseError(res, error, "updateNotification");
     res.json(data ? data[0] : null);
   } catch (err: any) {

@@ -25,7 +25,7 @@ export interface UserProfile {
   name: string;
   middleName: string;
   surname: string;
-  contact: string;
+  contact: string; // Used as email
   avatarUrl: string;
   socialLinks: string[];
   isVerified: boolean;
@@ -37,6 +37,9 @@ export interface UserProfile {
   receiveCode: string;
   transactions: Transaction[];
   hasSeenTour: boolean;
+  password?: string;
+  pin?: string;
+  idDocumentUploaded?: boolean; // Tracking if ID was uploaded previously
 }
 
 interface UserContextType {
@@ -56,6 +59,15 @@ interface UserContextType {
   rejectTopup: (id: string) => void;
   notifyLowBalance: () => void;
   transferCoins: (toCode: string, amount: number) => Promise<{ success: boolean; message: string }>;
+  register: (email: string, password: string, pin: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  recoveryLogin: (email: string, pin: string) => Promise<void>;
+  logout: () => void;
+  isAuthenticated: boolean;
+  isRegistered: boolean;
+  completeRegistration: () => void;
+  checkEmailExists: (email: string) => Promise<boolean>;
+  checkIdDocumentsRegistered: (email: string) => Promise<boolean>;
   error: string | null;
 }
 
@@ -96,6 +108,15 @@ const UserContext = createContext<UserContextType>({
   approveTopup: () => {},
   rejectTopup: () => {},
   notifyLowBalance: () => {},
+  register: async () => {},
+  login: async () => {},
+  recoveryLogin: async () => {},
+  logout: () => {},
+  isAuthenticated: false,
+  isRegistered: false,
+  completeRegistration: () => {},
+  checkEmailExists: async () => false,
+  checkIdDocumentsRegistered: async () => false,
   transferCoins: async () => ({ success: false, message: '' }),
   error: null,
 });
@@ -110,8 +131,20 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [adminProfit, setAdminProfit] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isRegistered, setIsRegistered] = useState(false);
 
   useEffect(() => {
+    const auth = localStorage.getItem('app_is_authenticated') === 'true';
+    const reg = localStorage.getItem('app_is_registered') === 'true';
+    const storedUserId = localStorage.getItem('app_user_id');
+    
+    setIsAuthenticated(auth);
+    setIsRegistered(reg);
+    if (storedUserId) {
+      setCurrentUserId(storedUserId);
+    }
+
     const fetchData = async () => {
       try {
         const responses = await Promise.all([
@@ -159,10 +192,32 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
       });
+      
       const saved = await res.json();
-      setProfiles(prev => ({ ...prev, [currentUserId]: { ...prev[currentUserId], ...saved } }));
-    } catch (err) {
+      
+      if (saved.profileNotFound) {
+        // If profile doesn't exist in DB, create it
+        const currentProfile = profiles[currentUserId] || defaultProfiles.me;
+        const newProfile = { ...currentProfile, ...updates, id: currentUserId };
+        
+        const createRes = await fetch('/api/profiles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newProfile)
+        });
+        
+        if (createRes.ok) {
+          const created = await createRes.json();
+          setProfiles(prev => ({ ...prev, [currentUserId]: created }));
+        }
+      } else if (res.ok) {
+        setProfiles(prev => ({ ...prev, [currentUserId]: { ...prev[currentUserId], ...saved } }));
+      } else {
+        throw new Error(saved.error || 'Failed to update profile');
+      }
+    } catch (err: any) {
       console.error('Failed to update profile', err);
+      setError(err.message || "Failed to update profile");
     }
   };
 
@@ -190,6 +245,12 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         })
       });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to send message');
+      }
+      
       const saved = await res.json();
       setMessages(prev => [...prev, saved]);
 
@@ -205,13 +266,16 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
             status: 'sent',
             isRead: false
           };
-          const bRes = await fetch('/api/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(botMsg)
-          });
-          const bSaved = await bRes.json();
-          setMessages(prev => [...prev, bSaved]);
+      const bRes = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(botMsg)
+      });
+      
+      if (bRes.ok) {
+        const bSaved = await bRes.json();
+        setMessages(prev => [...prev, bSaved]);
+      }
         }, 1500);
       }
     } catch (err) {
@@ -226,8 +290,11 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
       });
-      const saved = await res.json();
-      setMessages(prev => prev.map(m => m.id === saved.id ? saved : m));
+      
+      if (res.ok) {
+        const saved = await res.json();
+        setMessages(prev => prev.map(m => m.id === saved.id ? saved : m));
+      }
     } catch (err) {
       console.error('Failed to update message', err);
     }
@@ -404,6 +471,138 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const register = async (email: string, password: string, pin: string) => {
+    try {
+      const emailExists = await checkEmailExists(email);
+      if (emailExists) {
+        throw new Error("This email is already registered.");
+      }
+
+      const idDocsRegistered = await checkIdDocumentsRegistered(email);
+      if (idDocsRegistered) {
+         throw new Error("ID documents already registered. Please login.");
+      }
+
+      // In a real app we'd generate a proper ID. Let's use timestamp for demo.
+      const newUserId = `user_${Date.now()}`;
+      
+      const newProfile: Partial<UserProfile> = {
+        id: newUserId,
+        contact: email,
+        password,
+        pin,
+        name: email.split('@')[0],
+        balance: 0,
+        receiveCode: `GIG-${Math.floor(1000 + Math.random() * 9000)}`,
+        avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+      };
+
+      const res = await fetch('/api/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newProfile)
+      });
+
+      if (!res.ok) throw new Error("Failed to create profile");
+      
+      const created = await res.json();
+      setCurrentUserId(created.id);
+      setIsAuthenticated(true);
+      localStorage.setItem('app_is_authenticated', 'true');
+      localStorage.setItem('app_user_id', created.id);
+      setProfiles(prev => ({ ...prev, [created.id]: created }));
+    } catch (err: any) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const login = async (email: string, password: string) => {
+    try {
+      const res = await fetch(`/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Login failed");
+      }
+
+      const userData = await res.json();
+      setCurrentUserId(userData.id);
+      setIsAuthenticated(true);
+      setIsRegistered(true);
+      localStorage.setItem('app_is_authenticated', 'true');
+      localStorage.setItem('app_is_registered', 'true');
+      localStorage.setItem('app_user_id', userData.id);
+    } catch (err: any) {
+        setError(err.message);
+        throw err;
+    }
+  };
+
+  const recoveryLogin = async (email: string, pin: string) => {
+    try {
+      const res = await fetch(`/api/recovery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, pin })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Recovery failed");
+      }
+
+      const userData = await res.json();
+      setCurrentUserId(userData.id);
+      setIsAuthenticated(true);
+      setIsRegistered(true);
+      localStorage.setItem('app_is_authenticated', 'true');
+      localStorage.setItem('app_is_registered', 'true');
+      localStorage.setItem('app_user_id', userData.id);
+    } catch (err: any) {
+        setError(err.message);
+        throw err;
+    }
+  };
+
+  const checkEmailExists = async (email: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/check-email?email=${encodeURIComponent(email)}`);
+      const data = await res.json();
+      return data.exists;
+    } catch (err) {
+      return false;
+    }
+  };
+
+  const checkIdDocumentsRegistered = async (email: string): Promise<boolean> => {
+    // For demo, we check if a profile with this contact has idUploaded=true
+     try {
+      const res = await fetch(`/api/check-docs?email=${encodeURIComponent(email)}`);
+      const data = await res.json();
+      return data.isRegistered;
+    } catch (err) {
+      return false;
+    }
+  };
+
+  const logout = () => {
+    setIsAuthenticated(false);
+    setIsRegistered(false);
+    localStorage.removeItem('app_is_authenticated');
+    localStorage.removeItem('app_is_registered');
+    localStorage.removeItem('app_user_id');
+  };
+
+  const completeRegistration = () => {
+    setIsRegistered(true);
+    localStorage.setItem('app_is_registered', 'true');
+  };
+
   if (!loaded) return null;
 
   return (
@@ -411,6 +610,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       profile, profiles, currentUserId, messages, sendMessage, updateMessage, deleteMessage, 
       switchUser, updateProfile, topupRequests, adminProfit, 
       submitTopup, approveTopup, rejectTopup, notifyLowBalance, transferCoins,
+      register, login, recoveryLogin, logout, isAuthenticated, isRegistered, completeRegistration,
+      checkEmailExists, checkIdDocumentsRegistered,
       error
     }}>
       {children}

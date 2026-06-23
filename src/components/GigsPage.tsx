@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Edit2, Trash2, BriefcaseBusiness, ArrowLeft, Share2 } from 'lucide-react';
 import { Gig } from '../types';
@@ -6,6 +6,7 @@ import GigForm from './GigForm';
 import GigCard from './GigCard';
 import ProvinceFilter from './ProvinceFilter';
 import SafeImage from './SafeImage';
+import ConnectionRope from './ConnectionRope';
 
 import { useData } from '../DataContext';
 import { useUser } from '../UserContext';
@@ -18,7 +19,7 @@ interface Props {
 }
 
 export default function GigsPage({ onNavigate, onChatRequest, onToggleForm, onToggleView }: Props) {
-  const { profile } = useUser();
+  const { profile, messages, profiles } = useUser();
   const { gigs, addGig, updateGig, deleteGig } = useData();
   const [showForm, setShowForm] = useState(false);
   const [editingGig, setEditingGig] = useState<Gig | null>(null);
@@ -28,6 +29,15 @@ export default function GigsPage({ onNavigate, onChatRequest, onToggleForm, onTo
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProvince, setSelectedProvince] = useState('All Provinces');
+
+  const connectionProgress = useMemo(() => {
+    if (!selectedGig) return 0.1;
+    const conversation = messages.filter(m => 
+      (m.fromId === profile.id && m.toId === selectedGig.ownerId) ||
+      (m.fromId === selectedGig.ownerId && m.toId === profile.id)
+    );
+    return Math.min(1, 0.1 + (conversation.length / 15) * 0.9);
+  }, [selectedGig, messages, profile.id]);
 
   const filteredGigs = gigs.filter(g => {
     const matchesSearch = g.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -171,6 +181,16 @@ export default function GigsPage({ onNavigate, onChatRequest, onToggleForm, onTo
                 {currentImageIndex + 1} / {selectedGig.images.length}
               </div>
             </motion.div>
+
+            {selectedGig.ownerId !== profile.id && (
+              <div className="mt-8">
+                <ConnectionRope 
+                  ownerAvatar={profiles[selectedGig.ownerId]?.avatarUrl || "https://images.unsplash.com/photo-1599566150163-29194dcaad36?q=80&w=200&auto=format&fit=crop"} 
+                  seekerAvatar={profile.avatarUrl} 
+                  progress={connectionProgress} 
+                />
+              </div>
+            )}
 
             <h2 className="text-3xl font-black italic tracking-tighter uppercase mt-6">{selectedGig.title}</h2>
             <div className="flex items-center gap-2 mt-2">

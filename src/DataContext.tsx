@@ -95,12 +95,16 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gig)
       });
-      const saved = await res.json();
-      if (saved.error) throw new Error(saved.error);
-      setGigs(prev => [saved, ...prev]);
+      if (res.ok) {
+        const saved = await res.json();
+        setGigs(prev => [saved, ...prev]);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to add gig');
+      }
     } catch (err: any) {
       console.error('Failed to add gig', err);
-      alert(`Error: ${err.message}`);
+      // alert(`Error: ${err.message}`); // Avoid window.alert if possible, but keeping it as it was there? Actually guidelines say avoid alert.
     }
   };
 
@@ -111,8 +115,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gig)
       });
-      const saved = await res.json();
-      setGigs(prev => prev.map(g => g.id === saved.id ? saved : g));
+      if (res.ok) {
+        const saved = await res.json();
+        setGigs(prev => prev.map(g => g.id === saved.id ? saved : g));
+      }
     } catch (err) {
       console.error('Failed to update gig', err);
     }
@@ -134,8 +140,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(seeker)
       });
-      const saved = await res.json();
-      setSeekers(prev => [saved, ...prev]);
+      if (res.ok) {
+        const saved = await res.json();
+        setSeekers(prev => [saved, ...prev]);
+      }
     } catch (err) {
       console.error('Failed to add seeker', err);
     }
@@ -148,8 +156,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(seeker)
       });
-      const saved = await res.json();
-      setSeekers(prev => prev.map(s => s.id === saved.id ? saved : s));
+      if (res.ok) {
+        const saved = await res.json();
+        setSeekers(prev => prev.map(s => s.id === saved.id ? saved : s));
+      }
     } catch (err) {
       console.error('Failed to update seeker', err);
     }
@@ -171,8 +181,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item)
       });
-      const saved = await res.json();
-      setSellingItems(prev => [saved, ...prev]);
+      if (res.ok) {
+        const saved = await res.json();
+        setSellingItems(prev => [saved, ...prev]);
+      }
     } catch (err) {
       console.error('Failed to add selling item', err);
     }
@@ -185,8 +197,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item)
       });
-      const saved = await res.json();
-      setSellingItems(prev => prev.map(i => i.id === saved.id ? saved : i));
+      if (res.ok) {
+        const saved = await res.json();
+        setSellingItems(prev => prev.map(i => i.id === saved.id ? saved : i));
+      }
     } catch (err) {
       console.error('Failed to update selling item', err);
     }
@@ -208,8 +222,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item)
       });
-      const saved = await res.json();
-      setWantedItems(prev => [saved, ...prev]);
+      if (res.ok) {
+        const saved = await res.json();
+        setWantedItems(prev => [saved, ...prev]);
+      }
     } catch (err) {
       console.error('Failed to add wanted item', err);
     }
@@ -222,8 +238,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item)
       });
-      const saved = await res.json();
-      setWantedItems(prev => prev.map(i => i.id === saved.id ? saved : i));
+      if (res.ok) {
+        const saved = await res.json();
+        setWantedItems(prev => prev.map(i => i.id === saved.id ? saved : i));
+      }
     } catch (err) {
       console.error('Failed to update wanted item', err);
     }

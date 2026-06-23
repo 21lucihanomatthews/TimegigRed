@@ -116,6 +116,8 @@ function VoiceMessagePlayer({ url }: { url: string }) {
 }
 
 
+import ConnectionRope from './ConnectionRope';
+
 interface Props {
   contact: Contact;
   onBack: () => void;
@@ -132,6 +134,15 @@ export default function ChatScreen({ contact, onBack, initialMessage, onInitialM
            (m.fromId === contact.id && m.toId === profile.id)
     );
   }, [allMessages, profile.id, contact.id]);
+
+  const activeMessagesCount = useMemo(() => {
+    return conversationMessages.filter(m => !m.isDeleted).length;
+  }, [conversationMessages]);
+
+  const connectionProgress = useMemo(() => {
+    // 0 messages = 10%, 15 messages = 100%
+    return Math.min(1, 0.1 + (activeMessagesCount / 15) * 0.9);
+  }, [activeMessagesCount]);
 
   useEffect(() => {
     if (initialMessage && onInitialMessageSent) {
@@ -482,6 +493,11 @@ export default function ChatScreen({ contact, onBack, initialMessage, onInitialM
 
       {/* Messages */}
       <div className="flex-grow overflow-y-auto p-4 space-y-4 bg-white/10 backdrop-blur-[1px]">
+        <ConnectionRope 
+          ownerAvatar={profile.avatarUrl} 
+          seekerAvatar={contact.avatar} 
+          progress={connectionProgress} 
+        />
         {conversationMessages.map((msg) => {
           const isFromMe = msg.fromId === profile.id;
           const showActions = showActionsId === msg.id;

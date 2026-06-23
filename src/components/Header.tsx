@@ -87,6 +87,8 @@ export default function Header({ activeTab, onOpenProfile, showTopup, setShowTop
   const pendingAdminCount = profile.isAdmin ? topupRequests.filter(r => r.status === 'pending').length : 0;
   const isLowBalance = profile.balance <= 50;
 
+  const { logout } = useUser();
+
   if (activeTab === 'Chat') return null;
 
   return (
@@ -341,7 +343,13 @@ export default function Header({ activeTab, onOpenProfile, showTopup, setShowTop
                        Request Admin Access
                      </button>
                   )}
-                  <button className="flex w-full items-center justify-center gap-2 px-3 py-2 text-sm text-red-600 font-medium hover:bg-red-50 rounded-lg transition-colors mt-1">
+                  <button 
+                    onClick={() => {
+                        setShowWallet(false);
+                        logout();
+                    }}
+                    className="flex w-full items-center justify-center gap-2 px-3 py-2 text-sm text-red-600 font-medium hover:bg-red-50 rounded-lg transition-colors mt-1"
+                  >
                     <LogOut className="w-4 h-4" /> Logout
                   </button>
                 </div>
